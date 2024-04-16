@@ -1,11 +1,10 @@
 /**
- * This program is designed to loop through NUM_ARMS rotary encoders (mapped to 
- * the arduino's ports below) reading each & detecting if the value has changed.
- * If so, the corresponding arm's LEDs are set based on a color/complementary color 
- * mapping. If no change has been detected on a given encoder for NUM_SECS_TO_RAINBOW, 
- * the associated arm's LEDs default to rainbow.
- *
- * v0.1 - 2/19/24 - Initial version working on prototype board
+ * Test code - loops through all possible outputLedPinMap output pins, delaying
+ * five seconds/looping the following pattern:
+ * 
+ * rainbow -> delay -> color/compColor -> delay -> etc
+ * 
+ * See arm_led_encoder.ino for a more detailed explanation
  */
 
 #include <Adafruit_NeoPixel.h>
@@ -15,12 +14,11 @@
 
 const int NUM_ARMS = 7;                       // Number of arms
 const int LED_COUNT = 350;                    // Number of NeoPixels attached to each arm
-const int NUM_MS_TO_RAINBOW = 10000;          // Miliseconds before we go back to rainbowing
-const int NUM_MS_BEFORE_SENSOR_REREAD = 1000; // Miliseconds between each read of all arm input sensors
 const int NUM_COLOR_MAPPINGS = 15;            // Number of colors
 const char DEFAULT_BRIGHTNESS = 50;           // Default value of brightness, max is 255
 const long MAX_RAINBOW_HUE = 327680;          // Maximum rainbow hue value
 const long RAINBOW_HUE_INC_AMOUNT = 256;      // Amount to increment our global rainbow hue value by each coloring loop
+const long TEST_DELAY_MS = 2000;              // Amount of time to delay between each test sequence
 
 /**
  * Structure containing an individual arms information
@@ -40,15 +38,13 @@ arm_t arms[NUM_ARMS];
 // Array mapping arms -> output pins to LED strip
 int outputLedPinMap[NUM_ARMS] = {8, 7, 6, 5, 4, 3, 2};
 
-// Array mapping encoder input pin -> arms
-int inputEncoderPinMap[NUM_ARMS] = {15, 16, 17, 18, 19, 20, 21};
-
 // Array mapping encoder index -> color/complementary colors
 int colors[NUM_COLOR_MAPPINGS] = {0x12B8FF, 0x01DC03, 0xFFE62D, 0xFD4499, 0xDF19FB, 0x5E57FF, 0xF23CA6, 0xFF9535, 0x4BFF36, 0x02FEE4, 0xF500EB, 0x0CD4FF, 0x8DFF0A, 0xFFEF06, 0xFF3A06};
 int compColors[NUM_COLOR_MAPPINGS] = {0xff5912, 0xdc01da, 0x2d46ff, 0x44fda8, 0x35fb19, 0xf8ff57, 0x3cf288, 0x359fff, 0xea36ff, 0xfe021c, 0x00f50a, 0xff370c, 0x7c0aff, 0x0616ff, 0x06cbff};
 
 long currRainbowHue = 0;  // Global variable for the current rainbow hue to use for all arms rainbowing
-long lastSenseTimeMs = 0; // Last time in miliseconds we read all arms input/encoder values
+long startTimeMs = 0;     // Start time for the current test sequence
+int currSeq      = 0; // Current sequence to test
 
 /**
  * Setup function, run once at power on. Initializes each arm, mapping it
@@ -79,38 +75,6 @@ void setup () {
         // Set isActive to false
         arms[currArm].isActive = false;
         arms[currArm].activedTimeMs = 0;
-
-        // Configure encoder input pin
-        pinMode(inputEncoderPinMap[currArm], INPUT);
-    }
-}
-
-/**
- * Analog reads all arms input sensors, mapped to each arm index via inputEncoderPinMap
- * every NUM_MS_BEFORE_SENSOR_REREAD miliseconds to determine if we should twinkle
- */
-void readSensors() {
-
-    if (lastSenseTimeMs + NUM_MS_BEFORE_SENSOR_REREAD < millis())
-    {
-        static int newPossibleColorIndex = 0;
-        for(int currArm = 0; currArm < NUM_ARMS; currArm++) {
-
-            // Read the input pin associated with this arm
-            newPossibleColorIndex = map(analogRead(inputEncoderPinMap[currArm]), 0, 1023, 0, NUM_COLOR_MAPPINGS - 1);
-        
-            // If this arm has a new value update it, otherwise check if it's time go back to rainbowing
-            if (newPossibleColorIndex != arms[currArm].currentColorIndex) {
-                arms[currArm].currentColorIndex = newPossibleColorIndex;
-                arms[currArm].isActive = true;
-                arms[currArm].activedTimeMs = millis();
-            }
-            else if (arms[currArm].activedTimeMs + NUM_MS_TO_RAINBOW < millis()) {
-                arms[currArm].isActive = false;
-            }
-        }
-
-        lastSenseTimeMs = millis();
     }
 }
 
@@ -136,22 +100,22 @@ void twinkle(int currArm) {
         {
             if (arms[currArm].swap)
             {
-                arms[currArm].strip.setPixelColor(pixel, compColors[arms[currArm].currentColorIndex]);
+                arms[currArm].strip.setPixelColor(pixel, compColors[currSeq]);
             }
             else
             {
-                arms[currArm].strip.setPixelColor(pixel, colors[arms[currArm].currentColorIndex]);
+                arms[currArm].strip.setPixelColor(pixel, colors[currSeq]);
             }
         }
         else
         {
             if (arms[currArm].swap)
             {
-                arms[currArm].strip.setPixelColor(pixel, colors[arms[currArm].currentColorIndex]);
+                arms[currArm].strip.setPixelColor(pixel, colors[currSeq]);
             }
             else
             {
-                arms[currArm].strip.setPixelColor(pixel, compColors[arms[currArm].currentColorIndex]);  
+                arms[currArm].strip.setPixelColor(pixel, compColors[currSeq]);  
             }
         }
     }
@@ -165,11 +129,11 @@ void twinkle(int currArm) {
  *
  * @note The rainbow hue is global, used by all arms & is incremented each time this function is called
  */
-void color() {
+void testColor() {
 
     for(int currArm = 0; currArm < NUM_ARMS; currArm++)
     {
-        if (arms[currArm].isActive)
+        if (currSeq < NUM_COLOR_MAPPINGS)
         {
             twinkle(currArm);
         }
@@ -193,6 +157,15 @@ void color() {
  */
 void loop() {
 
-  readSensors();
-  color();
+    if (millis() > startTimeMs + TEST_DELAY_MS)
+    {
+        startTimeMs = millis();
+        currSeq += 1;
+        if (currSeq > NUM_COLOR_MAPPINGS)
+        {
+            currSeq = 0;
+        }
+    }
+
+    testColor();
 }
