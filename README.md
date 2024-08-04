@@ -4,4 +4,7 @@ Contains schematics & code for basic communication between two microcontrollers 
 
 Basic schematic is below - Arduinos are connected to RS485 modules which are connected to RJ45 breakout boards - which themselves are connected via an Ethernet cable.
 
+Future versions will switch out slave Arduino for XIAO-2040s & multiple slaves (& thus multiple LED strips on the master Arduino).
+
 ![alt text](https://github.com/anilvmantri/Infinipus/blob/main/documents/infinipus_schematic.png?raw=true)
+
