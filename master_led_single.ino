@@ -28,6 +28,8 @@ const int RS485_RECEIVE = LOW;
 int byteReceived;
 
 // NeoPixel variables/constants
+int stripOneEncoderPos = 0;
+long lastChangeOne = 0;
 const int STRIP_ONE_DATA_PIN = 12;
 const int NUM_LEDS_IN_STRIP = 350;
 Adafruit_NeoPixel stripOne = Adafruit_NeoPixel(NUM_LEDS_IN_STRIP, STRIP_ONE_DATA_PIN, NEO_GRB + NEO_KHZ800);
@@ -43,6 +45,8 @@ const int colorArray[] = {0xFF6633, 0xFFB399, 0xFF33FF, 0xFFFF99, 0x00B3E6,
 		  0x4D8066, 0x809980, 0xE6FF80, 0x1AFF33, 0x999933,
 		  0xFF3380, 0xCCCC00, 0x66E64D, 0x4D80CC, 0x9900B3, 
 		  0xE64D66, 0x4DB380, 0xFF4D4D, 0x99E6E6, 0x6666FF};
+const int timeToRainbowMs = 10000;
+long currRainbowHue  = 0;
 
 void setup()
 {
@@ -52,7 +56,7 @@ void setup()
 
     // Setup our NeoPixel strip(s)
     stripOne.begin();
-    stripOne.setBrightness(50);
+    stripOne.setBrightness(25);
     stripOne.rainbow(colorArray[0]);
     stripOne.show();
 
@@ -67,6 +71,7 @@ void loop()
 {
     if((lastCheck + timeBetweenChecksMs) < millis())
     {
+        // Read our slaves (currently - just one)
         digitalWrite(SSERIAL_CTRL_PIN, RS485_TRANSMIT);
         Serial1.write('A');
         delay(1);
@@ -79,11 +84,31 @@ void loop()
 
         byteReceived = Serial1.read();
         delay(10);
-
-        stripOne.fill(colorArray[byteReceived], 0, NUM_LEDS_IN_STRIP - 1);
-        delay(10);
-        stripOne.show();
+        if (stripOneEncoderPos != byteReceived)
+        {
+            stripOneEncoderPos = byteReceived;
+            lastChangeOne = millis();
+        }
 
         lastCheck = millis();
     }
+
+    // Color our LED strips based on associated slaves last read encoder position
+    if (lastChangeOne + timeToRainbowMs < millis())
+    {
+        stripOne.rainbow(currRainbowHue);
+    }
+    else
+    {
+        stripOne.fill(colorArray[stripOneEncoderPos], 0, NUM_LEDS_IN_STRIP - 1);
+    }
+    stripOne.show();
+
+    // Update global rainbow hue value
+    currRainbowHue += 128;
+    if (currRainbowHue >= 327680)
+    {
+        currRainbowHue = 0;
+    }
+
 }
