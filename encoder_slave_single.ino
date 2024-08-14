@@ -25,9 +25,9 @@ int byteReceived;
 // Encoder variables/constants
 const int SS_SWITCH = 24;
 const int SS_NEOPIX = 6;
-const int NUM_ENCODERS = 8;
+const int NUM_ENCODERS = 7;
 const int SEESAW_ADDRS[NUM_ENCODERS] = {0x36, 0x37, 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D};
-const char ENCODER_IDS[NUM_ENCODERS] = {'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'};
+const char ENCODER_IDS[NUM_ENCODERS] = {'A', 'B', 'C', 'D', 'E', 'F', 'G'};
 int encoderPosition = 0;
 char encoderId = "";
 bool encoderFound = false;

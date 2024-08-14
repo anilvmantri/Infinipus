@@ -17,8 +17,8 @@
 
 // Master variables/constants
 const int MASTER_DELAY_MS = 6000;
-const int timeBetweenChecksMs = 200;
-const int timeToWaitMs = 200;
+const int timeBetweenChecksMs = 1000; //200;
+const long timeToWaitMs = 200;
 long lastCheck = 0;
 
 // RS485 variables/constants
@@ -27,11 +27,18 @@ const int RS485_TRANSMIT = HIGH;
 const int RS485_RECEIVE = LOW;
 int byteReceived;
 
+// Encoder variable/constants
+const int NUM_ENCODERS = 7;
+const char ENCODER_IDS[NUM_ENCODERS] = {'A', 'B', 'C', 'D', 'E', 'F', 'G'};
+
 // NeoPixel variables/constants
+int encoderPosition[NUM_ENCODERS] = {0, 0, 0, 0, 0, 0, 0};
+long lastChanged[NUM_ENCODERS] = {0, 0, 0, 0, 0, 0, 0};
+bool encoderExists[NUM_ENCODERS] = {true, true, true, true, true, true, true};
 int stripOneEncoderPos = 0;
 long lastChangeOne = 0;
 const int STRIP_ONE_DATA_PIN = 12;
-const int NUM_LEDS_IN_STRIP = 350;
+const int NUM_LEDS_IN_STRIP = 700;
 Adafruit_NeoPixel stripOne = Adafruit_NeoPixel(NUM_LEDS_IN_STRIP, STRIP_ONE_DATA_PIN, NEO_GRB + NEO_KHZ800);
 
 // Coloring variables/constants
@@ -50,6 +57,8 @@ long currRainbowHue  = 0;
 
 void setup()
 {
+    Serial.begin(9600);
+  
     // Setup our RS485 control - putting it into receive mode to start
     pinMode(SSERIAL_CTRL_PIN, OUTPUT);    
     digitalWrite(SSERIAL_CTRL_PIN, RS485_RECEIVE);
@@ -65,44 +74,99 @@ void setup()
 
     // Delay a small amount of time - so that our slaves can initialize
     delay(MASTER_DELAY_MS);
+
+    Serial.println("Master Ready");
+}
+
+void read_encoder_value(int encoderIdx)
+{
+	Serial.println("Attempting to talk to encoder ID:");
+	Serial.println(ENCODER_IDS[encoderIdx]);
+
+    // Attempt to talk to the given encoder - via encoderId
+    digitalWrite(SSERIAL_CTRL_PIN, RS485_TRANSMIT);
+    Serial1.write(ENCODER_IDS[encoderIdx]);
+    delay(1);
+    digitalWrite(SSERIAL_CTRL_PIN, RS485_RECEIVE);
+
+    // Wait for a response
+    long startTime = millis();
+    while(!Serial1.available())
+    {
+        delay(10);
+
+        // This encoder failed to respond - mark it as missing & bounce out
+        if(startTime + timeToWaitMs < millis())
+        {
+        	Serial.println("Failed to communicate with encoder - marking as absent");
+        	encoderExists[encoderIdx] = false;
+        	break;
+        }
+    }
+
+    // If the encoder responded - record its position
+    if(encoderExists[encoderIdx])
+    {
+	    byteReceived = Serial1.read();
+	    delay(10);
+	    Serial.println("Read Value:");
+	    Serial.println(byteReceived);
+	    if (encoderPosition[encoderIdx] != byteReceived)
+	    {
+	        encoderPosition[encoderIdx] = byteReceived;
+	        lastChanged[encoderIdx] = millis();
+	    }
+	}
+
+	delay(10);
+}
+
+void color_leds(int encoderIdx)
+{
+	if(encoderExists[encoderIdx])
+	{
+	    // Color our LED strips based on associated slaves last read encoder position
+	    if (lastChanged[encoderIdx] + timeToRainbowMs < millis())
+	    {
+	        stripOne.rainbow(currRainbowHue);
+	    }
+	    else
+	    {
+	        stripOne.fill(colorArray[encoderPosition[encoderIdx]], 0, NUM_LEDS_IN_STRIP - 1);
+	    }
+	    stripOne.show();
+	}
 }
 
 void loop() 
 {
     if((lastCheck + timeBetweenChecksMs) < millis())
     {
-        // Read our slaves (currently - just one)
-        digitalWrite(SSERIAL_CTRL_PIN, RS485_TRANSMIT);
-        Serial1.write('A');
-        delay(1);
-        digitalWrite(SSERIAL_CTRL_PIN, RS485_RECEIVE);
-
-        while(!Serial1.available())
-        {
-            delay(10);
-        }
-
-        byteReceived = Serial1.read();
-        delay(10);
-        if (stripOneEncoderPos != byteReceived)
-        {
-            stripOneEncoderPos = byteReceived;
-            lastChangeOne = millis();
-        }
+    	for(int encoderIdx = 0; encoderIdx < NUM_ENCODERS; encoderIdx++)
+    	{
+    		if (encoderExists[encoderIdx])
+    		{
+    			read_encoder_value(encoderIdx);
+    		}
+    	}
 
         lastCheck = millis();
     }
 
-    // Color our LED strips based on associated slaves last read encoder position
-    if (lastChangeOne + timeToRainbowMs < millis())
-    {
-        stripOne.rainbow(currRainbowHue);
-    }
-    else
-    {
-        stripOne.fill(colorArray[stripOneEncoderPos], 0, NUM_LEDS_IN_STRIP - 1);
-    }
-    stripOne.show();
+    // // Color our LED strips based on associated slaves last read encoder position
+    // if (lastChangeOne + timeToRainbowMs < millis())
+    // {
+    //     stripOne.rainbow(currRainbowHue);
+    // }
+    // else
+    // {
+    //     stripOne.fill(colorArray[stripOneEncoderPos], 0, NUM_LEDS_IN_STRIP - 1);
+    // }
+    // stripOne.show();
+	for(int encoderIdx = 0; encoderIdx < NUM_ENCODERS; encoderIdx++)
+	{
+		color_leds(encoderIdx);
+	}
 
     // Update global rainbow hue value
     currRainbowHue += 128;
