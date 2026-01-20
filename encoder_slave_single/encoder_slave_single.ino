@@ -26,8 +26,8 @@ int byteReceived;
 const int SS_SWITCH = 24;
 const int SS_NEOPIX = 6;
 const int NUM_ENCODERS = 7;
-const int SEESAW_ADDRS[NUM_ENCODERS] = {0x36, 0x37, 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D};
-const char ENCODER_IDS[NUM_ENCODERS] = {'A', 'B', 'C', 'D', 'E', 'F', 'G'};
+const int SEESAW_ADDRS[NUM_ENCODERS] = {0x36, 0x37, 0x38, 0x39, 0x3A, 0x3B, 0x3C};
+const char ENCODER_IDS[NUM_ENCODERS] = {'A',  'B',  'C',  'D',  'E',  'F',  'G'};
 int encoderPosition = 0;
 char encoderId = "";
 bool encoderFound = false;
@@ -85,9 +85,9 @@ void setup()
 
 void loop() 
 {
-	if(encoderFound)
-	{
-    	encoderPosition = ss.getEncoderPosition();
+	  if(encoderFound)
+	  {
+    	  encoderPosition = ss.getEncoderPosition();
     }
 
     // Check if there is new data on the bus

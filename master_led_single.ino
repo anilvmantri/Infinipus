@@ -17,7 +17,7 @@
 
 // Master variables/constants
 const int MASTER_DELAY_MS = 6000;
-const int timeBetweenChecksMs = 1000; //200;
+const int timeBetweenChecksMs = 100;
 const long timeToWaitMs = 200;
 long lastCheck = 0;
 
@@ -35,24 +35,26 @@ const char ENCODER_IDS[NUM_ENCODERS] = {'A', 'B', 'C', 'D', 'E', 'F', 'G'};
 int encoderPosition[NUM_ENCODERS] = {0, 0, 0, 0, 0, 0, 0};
 long lastChanged[NUM_ENCODERS] = {0, 0, 0, 0, 0, 0, 0};
 bool encoderExists[NUM_ENCODERS] = {true, true, true, true, true, true, true};
+int theaterChaseIndices[NUM_ENCODERS] = {0, 0, 0, 0, 0, 0, 0};
+byte randColorSeed[NUM_ENCODERS] = {0, 0, 0, 0, 0, 0, 0};
 int stripOneEncoderPos = 0;
 long lastChangeOne = 0;
-const int STRIP_ONE_DATA_PIN = 12;
-const int NUM_LEDS_IN_STRIP = 700;
-Adafruit_NeoPixel stripOne = Adafruit_NeoPixel(NUM_LEDS_IN_STRIP, STRIP_ONE_DATA_PIN, NEO_GRB + NEO_KHZ800);
+const int STRIP_ONE_DATA_PIN = 17;
+const int NUM_LEDS_IN_STRIP = 630; // (~85 pixels per segment * 7 segments per arm ~= 600 pixels per arm)
+
+Adafruit_NeoPixel strips[NUM_ENCODERS] = {
+  Adafruit_NeoPixel(NUM_LEDS_IN_STRIP, STRIP_ONE_DATA_PIN, NEO_GRB + NEO_KHZ800),
+  Adafruit_NeoPixel(NUM_LEDS_IN_STRIP, STRIP_ONE_DATA_PIN + 1, NEO_GRB + NEO_KHZ800),
+  Adafruit_NeoPixel(NUM_LEDS_IN_STRIP, STRIP_ONE_DATA_PIN + 2, NEO_GRB + NEO_KHZ800),
+  Adafruit_NeoPixel(NUM_LEDS_IN_STRIP, STRIP_ONE_DATA_PIN + 3, NEO_GRB + NEO_KHZ800),
+  Adafruit_NeoPixel(NUM_LEDS_IN_STRIP,  STRIP_ONE_DATA_PIN + 4, NEO_GRB + NEO_KHZ800),
+  Adafruit_NeoPixel(NUM_LEDS_IN_STRIP,  STRIP_ONE_DATA_PIN + 5, NEO_GRB + NEO_KHZ800),
+  Adafruit_NeoPixel(NUM_LEDS_IN_STRIP,  STRIP_ONE_DATA_PIN + 6, NEO_GRB + NEO_KHZ800),
+};
+
 
 // Coloring variables/constants
-const int colorArray[] = {0xFF6633, 0xFFB399, 0xFF33FF, 0xFFFF99, 0x00B3E6, 
-		  0xE6B333, 0x3366E6, 0x999966, 0x99FF99, 0xB34D4D,
-		  0x80B300, 0x809900, 0xE6B3B3, 0x6680B3, 0x66991A, 
-		  0xFF99E6, 0xCCFF1A, 0xFF1A66, 0xE6331A, 0x33FFCC,
-		  0x66994D, 0xB366CC, 0x4D8000, 0xB33300, 0xCC80CC, 
-		  0x66664D, 0x991AFF, 0xE666FF, 0x4DB3FF, 0x1AB399,
-		  0xE666B3, 0x33991A, 0xCC9999, 0xB3B31A, 0x00E680, 
-		  0x4D8066, 0x809980, 0xE6FF80, 0x1AFF33, 0x999933,
-		  0xFF3380, 0xCCCC00, 0x66E64D, 0x4D80CC, 0x9900B3, 
-		  0xE64D66, 0x4DB380, 0xFF4D4D, 0x99E6E6, 0x6666FF};
-const int timeToRainbowMs = 10000;
+const int timeToRainbowMs = 5000;
 long currRainbowHue  = 0;
 
 void setup()
@@ -63,12 +65,14 @@ void setup()
     pinMode(SSERIAL_CTRL_PIN, OUTPUT);    
     digitalWrite(SSERIAL_CTRL_PIN, RS485_RECEIVE);
 
-    // Setup our NeoPixel strip(s)
-    stripOne.begin();
-    stripOne.setBrightness(25);
-    stripOne.rainbow(colorArray[0]);
-    stripOne.show();
-
+    for(int i = 0; i < NUM_ENCODERS; i++)
+    {
+        strips[i].begin();
+        strips[i].setBrightness(25);
+        strips[i].rainbow(random() % 327680);
+        strips[i].show();  
+    }
+    
     // Setup our TX/RX communication
     Serial1.begin(115200);
 
@@ -78,16 +82,35 @@ void setup()
     Serial.println("Master Ready");
 }
 
+uint32_t randColor(byte seed)
+{
+    seed = 255 - seed;
+    if(seed < 85)
+    {
+        return strips[0].Color(255 - seed * 3, 0, seed * 3);
+    }
+    else if(seed < 170)
+    {
+        seed -= 85;
+        return strips[0].Color(0, seed * 3, 255 - seed * 3);
+    }
+    else
+    {
+        seed -= 170;
+        return strips[0].Color(seed * 3, 255 - seed * 3, 0);
+    }
+}
+
 void read_encoder_value(int encoderIdx)
 {
-	Serial.println("Attempting to talk to encoder ID:");
-	Serial.println(ENCODER_IDS[encoderIdx]);
-
     // Attempt to talk to the given encoder - via encoderId
     digitalWrite(SSERIAL_CTRL_PIN, RS485_TRANSMIT);
     Serial1.write(ENCODER_IDS[encoderIdx]);
     delay(1);
     digitalWrite(SSERIAL_CTRL_PIN, RS485_RECEIVE);
+
+    Serial.println("Hello!");
+    Serial.println(ENCODER_IDS[encoderIdx]);
 
     // Wait for a response
     long startTime = millis();
@@ -95,84 +118,125 @@ void read_encoder_value(int encoderIdx)
     {
         delay(10);
 
-        // This encoder failed to respond - mark it as missing & bounce out
+        // This encoder failed to respond - try a different one & come back later
         if(startTime + timeToWaitMs < millis())
         {
-        	Serial.println("Failed to communicate with encoder - marking as absent");
-        	encoderExists[encoderIdx] = false;
-        	break;
+            Serial.println("Failed to communicate with encoder - marking as absent");
+          Serial.println(ENCODER_IDS[encoderIdx]);
+          Serial.println("---------");
+            // encoderExists[encoderIdx] = false;
+            break;
         }
     }
 
     // If the encoder responded - record its position
     if(encoderExists[encoderIdx])
     {
-	    byteReceived = Serial1.read();
-	    delay(10);
-	    Serial.println("Read Value:");
-	    Serial.println(byteReceived);
-	    if (encoderPosition[encoderIdx] != byteReceived)
-	    {
-	        encoderPosition[encoderIdx] = byteReceived;
-	        lastChanged[encoderIdx] = millis();
-	    }
-	}
+        byteReceived = Serial1.read();
+        delay(10);
+        if (encoderPosition[encoderIdx] != byteReceived)
+        {
+            Serial.println("Encoder - New Position");
+            Serial.println(ENCODER_IDS[encoderIdx]);
+          Serial.println(byteReceived);
+          Serial.println("---------");
+          byte newColorSeed = random() % 255;
+          if(newColorSeed < randColorSeed[encoderIdx] + 70 && newColorSeed > randColorSeed[encoderIdx] - 70)
+          {
+            randColorSeed[encoderIdx] = random() % 255;
+          }
+          else
+          {
+            randColorSeed[encoderIdx] = (randColorSeed[encoderIdx] + 80) % 255;
+          }
+            encoderPosition[encoderIdx] = byteReceived;
+            lastChanged[encoderIdx] = millis();
+        }
+    }
 
-	delay(10);
+    delay(10);
+}
+
+void rainbow(int encoderIdx)
+{
+    strips[encoderIdx].rainbow(currRainbowHue);
+    strips[encoderIdx].show();
+}
+
+void colorFill(int encoderIdx)
+{
+    strips[encoderIdx].fill(randColor(randColorSeed[encoderIdx]), 0, strips[encoderIdx].numPixels() - 1);
+    strips[encoderIdx].show();
+}
+
+void theaterChase(int encoderIdx)
+{
+  for(int pixelIdx = 0; pixelIdx < strips[encoderIdx].numPixels(); pixelIdx++)
+  {
+      if ((pixelIdx + theaterChaseIndices[encoderIdx]) % 3 == 0)
+      {
+          strips[encoderIdx].setPixelColor(pixelIdx, randColor(randColorSeed[encoderIdx]));
+      }
+      else
+      {
+          strips[encoderIdx].setPixelColor(pixelIdx, randColor((randColorSeed[encoderIdx] + 80) % 255));
+      }
+  }
+  theaterChaseIndices[encoderIdx]++;
+  strips[encoderIdx].show();
 }
 
 void color_leds(int encoderIdx)
 {
-	if(encoderExists[encoderIdx])
-	{
-	    // Color our LED strips based on associated slaves last read encoder position
-	    if (lastChanged[encoderIdx] + timeToRainbowMs < millis())
-	    {
-	        stripOne.rainbow(currRainbowHue);
-	    }
-	    else
-	    {
-	        stripOne.fill(colorArray[encoderPosition[encoderIdx]], 0, NUM_LEDS_IN_STRIP - 1);
-	    }
-	    stripOne.show();
-	}
+    if(encoderExists[encoderIdx])
+    {
+        // Color our LED strips based on associated slaves last read encoder position
+        if ((lastChanged[encoderIdx] + timeToRainbowMs) < millis())
+        {
+            rainbow(encoderIdx);
+        }
+        else if (encoderPosition[encoderIdx] % 2 == 0)
+        {
+          colorFill(encoderIdx);
+        }
+      else
+      {
+        theaterChase(encoderIdx);
+      }
+    }
+    else
+    {
+        // If the encoder doesn't exist, just rainbow it's associated LEDs
+        rainbow(encoderIdx);
+    }
 }
 
 void loop() 
 {
     if((lastCheck + timeBetweenChecksMs) < millis())
     {
-    	for(int encoderIdx = 0; encoderIdx < NUM_ENCODERS; encoderIdx++)
-    	{
-    		if (encoderExists[encoderIdx])
-    		{
-    			read_encoder_value(encoderIdx);
-    		}
-    	}
+        for(int encoderIdx = 0; encoderIdx < NUM_ENCODERS; encoderIdx++)
+        {
+            if (encoderExists[encoderIdx])
+            {
+                read_encoder_value(encoderIdx);
+            }
+        }
 
         lastCheck = millis();
     }
 
     // // Color our LED strips based on associated slaves last read encoder position
-    // if (lastChangeOne + timeToRainbowMs < millis())
-    // {
-    //     stripOne.rainbow(currRainbowHue);
-    // }
-    // else
-    // {
-    //     stripOne.fill(colorArray[stripOneEncoderPos], 0, NUM_LEDS_IN_STRIP - 1);
-    // }
-    // stripOne.show();
-	for(int encoderIdx = 0; encoderIdx < NUM_ENCODERS; encoderIdx++)
-	{
-		color_leds(encoderIdx);
-	}
-
-    // Update global rainbow hue value
-    currRainbowHue += 128;
-    if (currRainbowHue >= 327680)
+    for(int encoderIdx = 0; encoderIdx < NUM_ENCODERS; encoderIdx++)
     {
-        currRainbowHue = 0;
+        color_leds(encoderIdx);
     }
 
+    // Update global rainbow hue value
+    currRainbowHue += 512;
+    if (currRainbowHue >= 327680)
+    {
+        Serial.println("Looping Rainbow!");
+        currRainbowHue = 0;
+    }
 }
